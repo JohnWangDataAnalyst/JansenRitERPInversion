@@ -130,5 +130,50 @@ def fetch_MomiEtAlELife2023(dest_folder=None):
     # Confirm you got everything and go back to initial dir
     os.chdir(cwd)
 
+def fetch_egtmseeg(dest_folder=None, redownload=False):
+    #
+    # -----
+    # Usage
+    # -----
+    #
+    # res = fetch_egtmseeg()
+    #
 
+    osf_url_pfx = 'https://osf.io/download'
+    files_dict = {'680fc6eb5210d93da17c5a1d':'Schaefer2018_200Parcels_7Networks_count.csv',
+                  '680fe69f9ba48ef173568c07':'Schaefer2018_200Parcels_7Networks_order_FSLMNI152_2mm.Centroid_RAS.txt',
+                  '680fc6fbab92f2b5627c5a0f':'stim_weights.npy',
+                  '680fc6f63068d66fc8568e3e':'Subject_1_low_voltage.fif',
+                  '680fc6f80959f56dde568f29':'Subject_1_low_voltage_fittingresults_stim_exp.pkl',
+                  '680fc6f99f030183213cbfd3':'Subject_1_low_voltage_lf.npy'}
+    
+    cwd = os.getcwd()
+   
+    if dest_folder is None:
+        defpath = get_localdefaultdatapath()
+        dest_folder = os.path.join(defpath, 'eg__tmseeg')
+
+    # If input instruction was to re-download and folder is already present, remove it
+    if os.path.isdir(dest_folder) and redownload == True:
+        os.system('rm -rf %s' %dest_folder)
+
+    
+    total_files = len(files_dict)
+
+    # If the folder does not exist, create it and download the files
+    if not os.path.isdir(dest_folder): 
+
+        os.makedirs(dest_folder)
+    
+        os.chdir(dest_folder)
+
+        for file_code, file_name in files_dict.items():
+          dlcode = osf_url_pfx + '/' + file_code
+          pull_file(dlcode, file_name, download_method='wget')
+
+
+    os.chdir(cwd)
+    
+
+    return dest_folder
 
