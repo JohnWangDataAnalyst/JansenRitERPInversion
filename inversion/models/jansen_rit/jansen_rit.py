@@ -39,81 +39,10 @@ JR params class
 ---------------
 """
 
-class JansenRitParams(AbstractParams):
-    """
-    A class for setting the parameters of a neural mass model for M/EEG data fitting.
-
-    Attributes:
-        A (par): The amplitude of the EPSP (excitatory post synaptic potential).
-        a (par): A metric of the rate constant for the EPSP.
-        B (par): The amplitude of the IPSP (inhibitory post synaptic potential).
-        b (par): A metric of the rate constant for the IPSP.
-        g (par): The gain of ???.
-        c1 (par): The connectivity parameter from the pyramidal to excitatory interneurons.
-        c2 (par): The connectivity parameter from the excitatory interneurons to the pyramidal cells.
-        c3 (par): The connectivity parameter from the pyramidal to inhibitory interneurons.
-        c4 (par): The connectivity parameter from the inhibitory interneurons to the pyramidal cells.
-        std_in (par): The standard deviation of the input noise.
-        vmax (par): The maximum value of the sigmoid function.
-        v0 (par): The midpoint of the sigmoid function.
-        r (par): The slope of the sigmoid function.
-        y0 (par): ???.
-        mu (par): The mean of the input.
-        k (par): ???.
-        cy0 (par): ???.
-        ki (par): ???.
-    """
-    def __init__(self, **kwargs):
-        """
-        Initializes the ParamsJR object.
-
-        Args:
-            **kwargs: Keyword arguments for the model parameters.
-
-        Returns:
-            None
-        """
-        param = {
-            "A": par(3.25), 
-            "a": par(100), 
-            "B": par(22), 
-            "b": par(50), 
-            "g": par(1000),
-            
-            "c1": par(135), 
-            "c2": par(135 * 0.8), 
-            "c3 ": par(135 * 0.25), 
-            "c4": par(135 * 0.25),
-            
-            "std_in": par(100), 
-            "vmax": par(5), 
-            "v0": par(6), 
-            "r": par(0.56), 
-            "y0": par(2),
-            
-            "mu": par(.5), 
-            "k": par(5), 
-            "cy0": par(5), 
-            "ki": par(1)
-        }
-        
-        for var in param:
-            setattr(self, var, param[var])
-
-        for var in kwargs:
-            setattr(self, var, kwargs[var])
-
-
-
-"""
-JR model class
---------------
-"""
-
-class JansenRitModel(AbstractNeuralModel):
+class RNNJANSEN(AbstractNMM):
     """
     A module for forward model (JansenRit) to simulate EEG signals
-    
+
     Attibutes
     ---------
     state_size : int
@@ -132,7 +61,7 @@ class JansenRitModel(AbstractNeuralModel):
         Integration step for forward model
 
     tr : float # TODO: CHANGE THE NAME TO sampling_rate
-        Sampling rate of the simulated EEG signals 
+        Sampling rate of the simulated EEG signals
 
     TRs_per_window: int # TODO: CHANGE THE NAME
         Number of EEG signals to simulate
@@ -152,7 +81,7 @@ class JansenRitModel(AbstractNeuralModel):
     use_fit_lfm: bool
         Flag for fitting the leadfield matrix. 1: fit, 0: not fit
 
-    # FIGURE OUT: g, c1, c2, c3, c4: tensor with gradient on 
+    # FIGURE OUT: g, c1, c2, c3, c4: tensor with gradient on
     #     model parameters to be fit
 
     std_in: tensor with gradient on
@@ -170,28 +99,16 @@ class JansenRitModel(AbstractNeuralModel):
     createDelayIC(self, ver):
         Creates the initial conditions for the delays.
 
-    setModelParameters(self):    
+    setModelParameters(self):
         Sets the parameters of the model.
-    
+
     forward(input, noise_out, hx)
         Forward pass for generating a number of EEG signals with current model parameters
-    
+
     """
 
-    def __init__(self, 
-                 params: JansenRitParams, 
-                 node_size=200,
-                 TRs_per_window= 20, 
-                 step_size=0.0001, 
-                 output_size=64, 
-                 tr=0.001, 
-                 sc=ones((200,200)), 
-                 lm=ones((64,200)), 
-                 dist=ones((200,200)),
-                 use_fit_gains=True,
-                 use_laplacian=True,
-                 use_fit_lfm=False
-                 ):               
+    def __init__(self, params: ParamsJR, node_size=200,
+                 TRs_per_window=20, step_size=0.0001, output_size= 62, tr=0.001, sc=np.ones((200,200)), lm=np.ones((62,200)), dist=np.ones((200,200)), use_fit_gains=True, mask = np.ones((200,200))):
         """
         Parameters
         ----------
@@ -204,7 +121,7 @@ class JansenRitModel(AbstractNeuralModel):
         output_size : int
             Number of EEG channels.
         tr : float # TODO: CHANGE THE NAME TO sampling_rate
-            Sampling rate of the simulated EEG signals 
+            Sampling rate of the simulated EEG signals
         sc: ndarray node_size x node_size float array
             Structural connectivity
         lm: ndarray float array
@@ -213,43 +130,40 @@ class JansenRitModel(AbstractNeuralModel):
             Distance matrix
         use_fit_gains: bool
             Flag for fitting gains. 1: fit, 0: not fit
-        use_laplacian: bool
-            Flat for using laplacian. 1: yes, 0: no. 
-        use_fit_lfm: bool
-            Flag for fitting the leadfield matrix. 1: fit, 0: not fit
         params: ParamsJR
             Model parameters object.
         """
         method_arg_type_check(self.__init__) # Check that the passed arguments (excluding self) abide by their expected data types
-        
-        super(JansenRitModel, self).__init__(params)
-        self.state_names = ['E', 'Ev', 'I', 'Iv', 'P', 'Pv']
+
+        super(RNNJANSEN, self).__init__(params)
+
+        self.pop_names = np.array(['P', 'E', 'I'])
+        self.state_names = np.array(['current', 'voltage'])
         self.output_names = ["eeg"]
         self.track_params = [] #Is populated during setModelParameters()
-        
+
         self.model_name = "JR"
-        self.state_size = 6  # 6 states JR model
+        self.pop_size = 3  # 3 populations JR
+        self.state_size = 2  # 2 states in each population
         self.tr = tr  # tr ms (integration step 0.1 ms)
-        self.step_size = pttensor(step_size, dtype=ptfloat32)  # integration step 0.1 ms
+        self.step_size = torch.tensor(step_size, dtype=torch.float32)  # integration step 0.1 ms
         self.steps_per_TR = int(tr / step_size)
         self.TRs_per_window = TRs_per_window  # size of the batch used at each step
         self.node_size = node_size  # num of ROI
         self.output_size = output_size  # num of EEG channels
         self.sc = sc  # matrix node_size x node_size structure connectivity
-        self.dist = pttensor(dist, dtype=ptfloat32)
+        self.dist = torch.tensor(dist, dtype=torch.float32)
         self.lm = lm
         self.use_fit_gains = use_fit_gains  # flag for fitting gains
-        self.use_laplacian = use_laplacian
-        self.use_fit_lfm = use_fit_lfm
+        #self.use_fit_lfm = use_fit_lfm
         self.params = params
         self.output_size = lm.shape[0]  # number of EEG channels
-        
-        self.setModelParameters()
-        self.setModelSCParameters()
+        self.mask = mask
 
-    
-    
-    def createIC(self, ver, state_lb = -0.5, state_ub = 0.5):
+        self.setModelParameters()
+        #self.setModelSCParameters()
+
+    def createIC(self, ver):
         """
         Creates the initial conditions for the model.
 
@@ -264,23 +178,20 @@ class JansenRitModel(AbstractNeuralModel):
             Tensor of shape (node_size, state_size) with random values between `state_lb` and `state_ub`.
         """
 
-        n_nodes = self.node_size
-        n_states = self.state_size
-        init_conds = uniform(state_lb, state_ub, (n_nodes, n_states))
-        ptinit_conds = pttensor(init_conds, dtype=ptfloat32)
-                             
-        return ptinit_conds
-                            
+        state_lb = -0.01
+        state_ub = 0.01
 
-    def createDelayIC(self, ver, delays_max=500, state_lb=-0.5, state_ub=0.5):
+        return torch.tensor(np.random.uniform(state_lb, state_ub, (self.node_size, self.pop_size, self.state_size)),
+                             dtype=torch.float32)
+
+    def createDelayIC(self, ver):
         """
         Creates the initial conditions for the delays.
 
         Parameters
         ----------
         ver : int
-            Initial condition version. 
-            (in the JR model, the version is not used. It is just for consistency with other models)
+            Initial condition version. (in the JR model, the version is not used. It is just for consistency with other models)
 
         Returns
         -------
@@ -288,46 +199,43 @@ class JansenRitModel(AbstractNeuralModel):
             Tensor of shape (node_size, delays_max) with random values between `state_lb` and `state_ub`.
         """
 
-        n_nodes = self.node_size
-        init_delays = uniform(state_lb, state_ub, (n_nodes, delays_max))
-        ptinit_delays = pttensor(init_delays, dtype=ptfloat32)
-  
-        return ptinit_delays
+        delays_max = 500
+        state_ub = 0.1
+        state_lb = 0
 
+        return torch.tensor(np.random.uniform(state_lb, state_ub, (self.node_size,  delays_max)), dtype=torch.float32)
 
-    def setModelSCParameters(self, small_constant=0.05):
+    def setModelSCParameters(self):
         """
         Sets the parameters of the model.
         """
-        
-        # Create the arrays in numpy
+         # Create the arrays in numpy
+        small_constant = 0.05
         n_nodes = self.node_size
-        zsmat = zeros((self.node_size, self.node_size)) + small_constant 
+        zsmat = zeros((self.node_size, 2)) + small_constant
         w_p2e = zsmat.copy() # the pyramidal to excitatory interneuron cross-layer gains
         w_p2i = zsmat.copy() # the pyramidal to inhibitory interneuron cross-layer gains
         w_p2p = zsmat.copy() # the pyramidal to pyramidal cells same-layer gains
 
-        # Set w_p2i, w_p2e, and w_p2p as attributes as type Parameter if use_fit_gains is True
+        # Set w_bb, w_ff, and w_ll as attributes as type Parameter if use_fit_gains is True
         if self.use_fit_gains:
-            
-            w_p2e = ptParameter(pttensor(w_p2e, dtype=ptfloat32))
-            w_p2i = ptParameter(pttensor(w_p2i, dtype=ptfloat32))
-            w_p2p = ptParameter(pttensor(w_p2p, dtype=ptfloat32))
-            mps = self.params_fitted['modelparameter']
-            mps.append(w_p2e); mps.append(w_p2i); mps.append(w_p2p)
-
-        # Add to the current object
-        self.w_p2e = w_p2e
-        self.w_p2i = w_p2i
-        self.w_p2p = w_p2p
-        
+            self.w_bb = ptParameter(pttensor(w_p2i, dtype=ptfloat32))
+            self.w_ff = ptParameter(pttensor(w_p2e, dtype=ptfloat32))
+            self.w_ll = ptParameter(pttensor(w_p2p, dtype=ptfloat32))
+            self.params_fitted['modelparameter'].append(self.w_ll)
+            self.params_fitted['modelparameter'].append(self.w_ff)
+            self.params_fitted['modelparameter'].append(self.w_bb)
+        else:
+            self.w_bb = torch.tensor(np.zeros((self.node_size, self.node_size)), dtype=torch.float32)
+            self.w_ff = torch.tensor(np.zeros((self.node_size, self.node_size)), dtype=torch.float32)
+            self.w_ll = torch.tensor(np.zeros((self.node_size, self.node_size)), dtype=torch.float32)
 
 
     def forward(self, external, hx, hE):
         """
         This function carries out the forward Euler integration method for the JR neural mass model,
         with time delays, connection gains, and external inputs considered. Each population (pyramidal,
-        excitatory, inhibitory) in the network is modeled as a nonlinear second order system. The function
+        excitatory, inhibitory) in the network is modeled as a non-linear second order system. The function
         updates the state of each neural population and computes the EEG signals at each time step.
 
         Parameters
@@ -350,220 +258,199 @@ class JansenRitModel(AbstractNeuralModel):
         """
 
         # Generate the ReLU module
-        m = ptReLU()
-        
+        m = torch.nn.ReLU()
+
         # Define some constants
-        con_1 = pttensor(1.0, dtype=ptfloat32) # Define constant 1 tensor
-       
-        u_2ndsys_ub = 500  # the bound of the input for second order system
+        con_1 = torch.tensor(1.0, dtype=torch.float32) # Define constant 1 tensor
+        conduct_lb = 0  # lower bound for conduct velocity
+        u_2ndsys_ub = 800  # the bound of the input for second order system
+        noise_std_lb = 0  # lower bound of std of noise
+        lb = 0.  # lower bound of local gains
+        k_lb = 0.5  # lower bound of coefficient of external inputs
+
 
         # Defining NMM Parameters to simplify later equations
         #TODO: Change code so that params returns actual value used without extras below
-        A = self.params.A.value()
-        a = self.params.a.value()
-        B = self.params.B.value()
-        b = self.params.b.value()
-        g = self.params.g.value()
-        c1 = self.params.c1.value()
-        c2 = self.params.c2.value()
-        c3 = self.params.c3.value()
-        c4 = self.params.c4.value()
-        std_in = self.params.std_in.value() #around 20
+        A = 0 * con_1 + m(self.params.A.value())
+        a = 0 * con_1 + m(self.params.a.value())
+        B = 0 * con_1 + m(self.params.B.value())
+        b = 0 * con_1 + m(self.params.b.value())
+        g = 1*(lb * con_1 + m(self.params.g.value()))
+        c1 = (lb * con_1 + m(self.params.c1.value()))
+        c2 = (lb * con_1 + m(self.params.c2.value()))
+        c3 = (lb * con_1 + m(self.params.c3.value()))
+        c4 = (lb * con_1 + m(self.params.c4.value()))
+        std_in = (noise_std_lb * con_1 + m(self.params.std_in.value())) #around 20
         vmax = self.params.vmax.value()
         v0 = self.params.v0.value()
         r = self.params.r.value()
         y0 = self.params.y0.value()
-        mu = self.params.mu.value()
-        k =  self.params.k.value()
+        mu = (0.1 * con_1 + m(self.params.mu.value()))
+        k = (5.0 * con_1 + m(self.params.k.value()))
         cy0 = self.params.cy0.value()
         ki = self.params.ki.value()
 
-        g_f = self.params.g_f.value()
-        g_b = self.params.g_b.value()
+        g_f = 1*(lb * con_1 + m(self.params.g_f.value()))
+        g_b = 1*(lb * con_1 + m(self.params.g_b.value()))
+        w_bb = 1*(lb * con_1 + m(self.params.w_bb.value()))
+        w_ff = 1*(lb * con_1 + m(self.params.w_ff.value()))
+        w_ll = 1*(lb * con_1 + m(self.params.w_ll.value()))
         lm = self.params.lm.value()
 
         next_state = {}
 
-        P = hx[:, 0:1]  # current of pyramidal population
-        E = hx[:, 1:2]  # current of excitory population
-        I = hx[:, 2:3]  # current of inhibitory population
+        P = hx[:, 0:1, 0]  # current of pyramidal population
+        E = hx[:, 1:2, 0]  # current of excitory population
+        I = hx[:, 2:3, 0]  # current of inhibitory population
 
-        Pv = hx[:, 3:4]  # voltage of pyramidal population
-        Ev = hx[:, 4:5]  # voltage of exictory population
-        Iv = hx[:, 5:6]  # voltage of inhibitory population
-        
+        Pv = hx[:, 0:1, 1]  # voltage of pyramidal population
+        Ev = hx[:, 1:2, 1]  # voltage of exictory population
+        Iv = hx[:, 2:3, 1]  # voltage of inhibitory population
+        #print(M.shape)
         dt = self.step_size
-
         n_nodes = self.node_size
         n_chans = self.output_size
 
         sc = self.sc
         ptsc = pttensor(sc, dtype=ptfloat32)
 
-        if self.use_fit_gains:
+        if self.sc.shape[0] > 1:
 
-            # Update the pyramidal to excitatory, pyramidal to inhibitory, and pyramidal to pyramidal connectivity matrices based on the gains w_xx
-            
-            w_b = ptexp(self.w_p2i) * ptsc
-            w_n_b = w_b / ptnorm(w_b)
-            self.sc_p2i = w_n_b
-
-            w_f = ptexp(self.w_p2e) * ptsc     
-            w_n_f = w_f / ptnorm(w_f)
-            self.sc_p2e = w_n_f
-
-            w_l = ptexp(self.w_p2p) * ptsc         
-            w_n_l = (0.5 * (w_l + pttranspose(w_l, 0, 1))) / ptnorm(   0.5 * (w_l + pttranspose(w_l, 0, 1)))
-            self.sc_p2p = w_n_l
-
-
-        if self.use_laplacian:
+            # Update the Laplacian based on the updated connection gains w_bb.
+            #w_b = ptdiag(ptexp(self.w_bb[:,0])) @ ptsc @ ptdiag(ptexp(self.w_bb[:,1]))
+            w_b = ptdiag(w_bb[:,0]) @ ptsc @ ptdiag(w_bb[:,1])
+            w_n_b = w_b #/ ptnorm(w_b)*pttensor(self.mask, dtype=ptfloat32)
+            self.sc_m_b = w_n_b
             dg_b = -ptdiag(ptsum(w_n_b, dim=1))
-            dg_l = -ptdiag(ptsum(w_n_l, dim=1))
+
+            # Update the Laplacian based on the updated connection gains w_ff.
+            w_f = ptdiag(w_ff[:,0]) @ ptsc @ ptdiag(w_ff[:,1])
+            #w_f = ptdiag(ptexp(self.w_ff[:,0])) @ ptsc @ ptdiag(ptexp(self.w_ff[:,1]))
+            w_n_f = w_f #/ ptnorm(w_f)*pttensor(self.mask, dtype=ptfloat32)
+            self.sc_m_f = w_n_f
             dg_f = -ptdiag(ptsum(w_n_f, dim=1))
 
+            # Update the Laplacian based on the updated connection gains w_ll.
+            w_l = ptdiag(w_ll[:,0]) @ ptsc @ ptdiag(w_ll[:,0])
+            #w_l =ptexp(self.w_ll) * ptsc
+            w_n_l = (0.5 * (w_l + pttranspose(w_l, 0, 1))) #/ ptnorm(0.5 * (w_l + pttranspose(w_l, 0, 1)))*pttensor(self.mask, dtype=ptfloat32)
+            self.sc_fitted = w_n_l
+            dg_l = -ptdiag(ptsum(w_n_l, dim=1))
+        else:
+            l_s = torch.tensor(np.zeros((1, 1)), dtype=torch.float32) #TODO: This is not being called anywhere
+            dg_l = 0
+            dg_b = 0
+            dg_f = 0
+            w_n_l = 0
+            w_n_b = 0
+            w_n_f = 0
 
-        self.delays = (self.dist / mu).type(ptint64)
+        self.delays = (self.dist / mu).type(torch.int64)
 
         # Placeholder for the updated current state
         current_state = ptzeros_like(hx)
 
-        # Initializing lists for the history of the M/EEG signals, as well as each population's current and voltage.
-        E_window   = [];     I_window  = [];  P_window = [];
-        Ev_window  = [];     Iv_window = []; Pv_window = [];
-        eeg_window = []; states_window = [];
+        # Initializing lists for the history of the EEG signals, as well as each population's current and voltage.
+        eeg_window = []
+        E_window = []
+        I_window = []
+        P_window = []
+        Ev_window = []
+        Iv_window = []
+        Pv_window = []
+        states_window = []
+        inputs_window = []
 
-        # Use the model to get M/EEG signal at the i-th element in the window.
-
-        # Run through the number of specified sample points for this window 
+        # Use the forward model to get EEG signal at the i-th element in the window.
         for i_window in range(self.TRs_per_window):
-            
+            Ed = pttranspose(hE.clone().gather(1,self.delays), 0, 1)
 
-            # For each sample point, run the model by solving the differential 
-            # equations for a defined number of integration steps, 
-            # and keep only the final activity state within this set of steps 
+            LEd_p2i_adj = ptreshape(ptsum(w_n_b * Ed, 1), (n_nodes, 1)) #+ ptmatmul(dg_b, I -E)
+            LEd_p2e_adj = ptreshape(ptsum(w_n_f * Ed, 1), (n_nodes, 1)) #+ ptmatmul(dg_f, E -I)
+            LEd_p2p_adj = ptreshape(ptsum(w_n_l * Ed, 1), (n_nodes, 1)) #+ ptmatmul(dg_l, P)
             for step_i in range(self.steps_per_TR):
-                
-                # Collect the delayed inputs:
 
-                # i) index the history of E
-                Ed = pttranspose(hE.clone().gather(1,self.delays), 0, 1)
+                LEd_p2i = LEd_p2i_adj + ptmatmul(dg_b, I)
+                LEd_p2e = LEd_p2e_adj + ptmatmul(dg_f, E)
+                LEd_p2p = LEd_p2p_adj + ptmatmul(dg_l, P)
+                # external input
+                u_stim = external[:, step_i:step_i + 1, i_window, 0]
 
-                # ii) multiply the past states by the connectivity weights matrix, and sum over rows
-                LEd_p2e =  ptsum(w_n_f * Ed, 1)
-                LEd_p2i = -ptsum(w_n_b * Ed, 1)
-                LEd_p2p =  ptsum(w_n_l * Ed, 1)
-                
-                # iii) reshape for next step
-                LEd_p2e = ptreshape(LEd_p2e, (n_nodes, 1))
-                LEd_p2i = ptreshape(LEd_p2i, (n_nodes, 1))
-                LEd_p2p = ptreshape(LEd_p2p, (n_nodes, 1))
-                
-                # iv) if specified, add the laplacian component (self-connections from diagonals)
-                if self.use_laplacian:
-                    LEd_p2e =  LEd_p2e + ptmatmul(dg_f, E - I)
-                    LEd_p2i =  LEd_p2i - ptmatmul(dg_b, E - I)
-                    LEd_p2p =  LEd_p2p + ptmatmul(dg_l, P)
-
-                # External input (e.g. TMS, sensory)
-                u = external[:, step_i:step_i + 1, i_window]
-               
                 # Stochastic / noise term
-                P_noise = std_in * ptrandn(n_nodes, 1) 
+                P_noise = std_in * ptrandn(n_nodes, 1)
                 E_noise = std_in * ptrandn(n_nodes, 1)
                 I_noise = std_in * ptrandn(n_nodes, 1)
 
-                # Compute the firing rate for each neural populatin 
+                # Compute the firing rate for each neural populatin
                 # at every node using the wave-to-pulse (sigmoid) functino
                 # (vmax = max value of sigmoid, v0 = midpoint of sigmoid)
                 P_sigm = vmax / ( 1 + ptexp ( r*(v0 -  (E-I) ) ) )
                 E_sigm = vmax / ( 1 + ptexp ( r*(v0 - (c1*P) ) ) )
                 I_sigm = vmax / ( 1 + ptexp ( r*(v0 - (c3*P) ) ) )
-
-                # Sum the four different input types into a single input value for each neural 
+                # Sum the four different input types into a single input value for each neural
                 # populatin state variable
                 # The four input types are:
                 # - Local      (L)      - from other neural populations within a node (E->P,P->I, etc.)
-                # - Long-range (L-R)    - from other nodes in the network, weighted by the long-range 
+                # - Long-range (L-R)    - from other nodes in the network, weighted by the long-range
                 #                         connectivity matrices, and time-delayed
                 # - Noise      (N)      - stochastic noise input
                 # - External   (E)      - external stimulation, eg from TMS or sensory stimulus
                 #
                 #        Local    Long-range   Noise   External
-                rP =     P_sigm  + g*LEd_p2p   + P_noise + k*ki*u 
-                rE =  c2*E_sigm  + g_f*LEd_p2e + E_noise          
-                rI =  c4*I_sigm  + g_b*LEd_p2i + I_noise          
+
+                rP =     P_sigm  + g*LEd_p2p   + P_noise + k*ki*u_stim
+                rE =  c2*E_sigm  + g_f*LEd_p2e + E_noise
+                rI =  c4*I_sigm  + g_b*LEd_p2i + I_noise
 
                 # Apply some additional scaling
-                rP = u_2ndsys_ub * pttanh(rP / u_2ndsys_ub)
-                rE = u_2ndsys_ub * pttanh(rE / u_2ndsys_ub)
-                rI = u_2ndsys_ub * pttanh(rI / u_2ndsys_ub)
-                
-                # Compute d/dt   ('_tp1' = state variable at time t+1) 
+                rP_bd = u_2ndsys_ub * pttanh(rP / u_2ndsys_ub)
+                rE_bd = u_2ndsys_ub * pttanh(rE / u_2ndsys_ub)
+                rI_bd = u_2ndsys_ub * pttanh(rI / u_2ndsys_ub)
+
+                # Compute d/dt   ('_tp1' = state variable at time t+1)
                 P_tp1 =  P + dt * Pv
                 E_tp1 =  E + dt * Ev
                 I_tp1 =  I + dt * Iv
-                Pv_tp1 = Pv + dt * ( A*a*rP  -  2*a*Pv  -  a**2 * P )
-                Ev_tp1 = Ev + dt * ( A*a*rE  -  2*a*Ev  -  a**2 * E )
-                Iv_tp1 = Iv + dt * ( B*b*rI  -  2*b*Iv  -  b**2 * I )
+                Pv_tp1 = Pv + dt * ( A*a*rP_bd  -  2*a*Pv  -  a**2 * P )
+                Ev_tp1 = Ev + dt * ( A*a*rE_bd  -  2*a*Ev  -  a**2 * E )
+                Iv_tp1 = Iv + dt * ( B*b*rI_bd  -  2*b*Iv  -  b**2 * I )
+
+                # Calculate the saturation for model states (for stability and gradient calculation).
 
                 # Add some additional saturation on the model states
                 # (for stability and gradient calculation).
-                P_tp1 = 1000*pttanh(P_tp1/1000)
-                E_tp1 = 1000*pttanh(E_tp1/1000)
-                I_tp1 = 1000*pttanh(I_tp1/1000)
-                Pv_tp1 = 1000*pttanh(Pv_tp1/1000)
-                Ev_tp1 = 1000*pttanh(Ev_tp1/1000)
-                Iv_tp1 = 1000*pttanh(Iv_tp1/1000)
-                
+                P = 1000*pttanh(P_tp1/1000)
+                E = 1000*pttanh(E_tp1/1000)
+                I = 1000*pttanh(I_tp1/1000)
+                Pv = 1000*pttanh(Pv_tp1/1000)
+                Ev = 1000*pttanh(Ev_tp1/1000)
+                Iv = 1000*pttanh(Iv_tp1/1000)
+                #print('after M', M.shape)
                 # Update placeholders for pyramidal buffer
-                hE[:, 0] = P_tp1[:, 0]
-            
-                # Set state variables to currrent values for next round of the loop
-                P = P_tp1
-                E = E_tp1
-                I = I_tp1
-                Pv = Pv_tp1
-                Ev = Ev_tp1
-                Iv = Iv_tp1
-                # (note - we do this because we aren't (explicitly) keeping the history 
-                # by doing something like P[t+1] = P + dt*Pv 
-                # because (for the purpose of the paramer estimation) we don't want to 
-                # keep the entire integration loop history of P
-                #
+                #hE[:, 0] = P[:,0]
 
-                # *end 'step_i' loop*
+            # Capture the states at every tr in the placeholders for checking them visually.
 
-            # Capture the states at the end of every window in the placeholders for checking them visually
-            P_window.append(P);    I_window.append(I) ;  E_window.append(E)
-            Pv_window.append(Pv);  Iv_window.append(Iv); Ev_window.append(Ev)
-            
             # Capture the states at every tr in the placeholders for checking them visually.
             hE = ptcat([P, hE[:, :-1]], dim=1)  # update placeholders for pyramidal buffer
 
-            # Lead field matrix
-            onesmat = ptones(1,n_chans)
-            lm_t = (lm.T / ptsqrt((lm ** 2).sum(1))).T
-            self.lm_t = (lm_t - 1 / n_chans * ptmatmul(onesmat, lm_t))
-
-            # Compute M/EEG window
-            temp = cy0 * ptmatmul(self.lm_t, E-I) - 1 * y0
+            # Capture the states at every tr in the placeholders which is then used in the cost calculation.
+            lm_t = (lm.T / torch.sqrt((lm ** 2).sum(1))).T
+            lm_t_dm = (lm_t - 1 / n_chans * torch.matmul(torch.ones((1,n_chans)), lm_t))
+            temp = cy0 * torch.matmul(lm_t_dm, (E-I)[:200]) - 1 * y0
             eeg_window.append(temp)
-
-            # *end 'i_window' loop
-
+            states_window.append(torch.cat([torch.cat([P, E, I], dim=1)[:,:,np.newaxis], \
+                                   torch.cat([Pv, Ev, Iv], dim=1)[:,:,np.newaxis]], dim=2)[:,:,:,np.newaxis])
+            inputs_window.append(torch.cat([g*LEd_p2p, g_f*LEd_p2e, g_b*LEd_p2i], dim=1)[:,:,np.newaxis])
         # Update the current state.
-        current_state = ptcat([P, E, I, Pv, Ev, Iv], dim=1)
+        self.lm_t = lm_t_dm
+
+        current_state = torch.cat([torch.cat([P, E, I], dim=1)[:,:,np.newaxis], \
+                                   torch.cat([Pv, Ev, Iv], dim=1)[:,:,np.newaxis]], dim=2)
         next_state['current_state'] = current_state
-        next_state['eeg'] = ptcat(eeg_window, dim=1)
-        next_state['E'] = ptcat(E_window, dim=1)
-        next_state['I'] = ptcat(I_window, dim=1)
-        next_state['P'] = ptcat(P_window, dim=1)
-        next_state['Ev'] = ptcat(Ev_window, dim=1)
-        next_state['Iv'] = ptcat(Iv_window, dim=1)
-        next_state['Pv'] = ptcat(Pv_window, dim=1)
+        next_state['eeg'] = torch.cat(eeg_window, dim=1)
+        next_state['states'] = torch.cat(states_window, dim=3)
+        next_state['inputs'] = torch.cat(inputs_window, dim=2)
 
 
         return next_state, hE
-
-
